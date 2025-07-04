@@ -1,0 +1,20 @@
+pluginManagement {
+	repositories {
+		maven { url = 'https://repo.spring.io/milestone' }
+		maven { url = 'https://repo.spring.io/snapshot' }
+		gradlePluginPortal()
+	}
+}
+
+rootProject.name = 'bank-app'
+
+include("bank-shared")
+include("settings-service")
+include("security-service")
+include("fraud-detection")
+include("audit")
+include("notification-service")
+include("account-service")
+include ("api-gateway")
+include 'auth-statistics-service'
+

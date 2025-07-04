@@ -1,0 +1,143 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '3.5.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'checkstyle'
+	id 'com.github.spotbugs'
+	id'jacoco'
+}
+dependencyManagement {
+	imports {
+		mavenBom 'com.fasterxml.jackson:jackson-bom:2.17.0'
+	}
+}
+
+// Убираем Scala-модуль
+configurations.all {
+	exclude group: 'com.fasterxml.jackson.module', module: 'jackson-module-scala_2.13'
+}
+
+group = 'ru.katacademy.bank_app'
+version = '0.0.1-SNAPSHOT'
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+
+}
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+checkstyle {
+	toolVersion = '10.12.3'
+	configFile = file("$rootDir/config/checkstyle/checkstyle.xml")
+}
+repositories {
+	mavenCentral()
+	maven { url = 'https://repo.spring.io/milestone' }
+	maven { url = 'https://repo.spring.io/snapshot' }
+}
+
+jacoco {
+	toolVersion = "0.8.11"
+}
+
+test {
+	useJUnitPlatform()
+	finalizedBy jacocoTestReport // Генерировать отчёт после тестов
+}
+
+jacocoTestReport {
+	dependsOn test
+	reports {
+		html.required = true // Локальный HTML-отчёт
+	}
+
+
+	afterEvaluate {
+		classDirectories.setFrom(files(classDirectories.files.collect {
+			fileTree(dir: it, includes: [
+					"ru/katacademy/bank_app/frauddetection/account/domain/**",
+					"ru/katacademy/bank_app/frauddetection/service/**",
+			])
+		}))
+	}
+}
+
+// Проверка минимального покрытия (опционально)
+jacocoTestCoverageVerification {
+	dependsOn jacocoTestReport
+	afterEvaluate {
+		classDirectories.setFrom(files(classDirectories.files.collect {
+			fileTree(dir: it, includes: [
+					"ru/katacademy/bank_app/frauddetection/account/domain/**",
+					"ru/katacademy/bank_app/frauddetection/service/**",
+			])
+		}))
+	}
+	violationRules {
+		rule {element = 'CLASS'
+			limit {
+				minimum = 0.80 // Требуемое покрытие (80%)
+			}
+			println "Проверяемые классы/пакеты:"
+			classDirectories.each { dir ->
+				println " - ${dir}"
+			}
+		}
+	}
+}
+
+dependencies {
+	// SpotBugs
+	implementation 'com.github.spotbugs:spotbugs-annotations:4.8.3'
+	// Spring Boot Starters
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'javax.validation:validation-api:2.0.1.Final'
+	implementation 'org.hibernate.validator:hibernate-validator:6.0.13.Final'
+	implementation 'org.glassfish:javax.el:3.0.0'
+	implementation 'org.postgresql:postgresql:42.7.2'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0'
+	implementation 'org.springframework.boot:spring-boot-starter-aop'
+	implementation 'org.springframework.kafka:spring-kafka'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation(project(":bank-shared"))
+
+	// Lombok
+	compileOnly 'org.projectlombok:lombok'
+	compileOnly 'com.github.spotbugs:spotbugs-annotations:4.8.3'
+	annotationProcessor 'org.projectlombok:lombok'
+	// Database
+	runtimeOnly 'org.postgresql:postgresql'
+	// Testing
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testImplementation 'com.h2database:h2'
+	testImplementation 'org.springframework.kafka:spring-kafka-test'
+	testImplementation 'org.testcontainers:junit-jupiter'
+	testImplementation 'org.testcontainers:kafka'
+
+
+
+}
+
+spotbugs {
+	toolVersion = '4.8.3'
+	ignoreFailures = false
+	showStackTraces = true
+}
+
+tasks.withType(com.github.spotbugs.snom.SpotBugsTask).configureEach {
+	reports {
+		html.required.set(true)
+		html.outputLocation.set(file("$buildDir/reports/spotbugs.html"))
+	}
+}
+
+bootJar {
+	archiveFileName = 'app.jar'
+}
