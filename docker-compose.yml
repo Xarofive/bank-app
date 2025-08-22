@@ -19,7 +19,7 @@ services:
     container_name: bankapp-postgres
     restart: always
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       POSTGRES_DB: userDB
       POSTGRES_USER: root
@@ -44,6 +44,21 @@ services:
       - user-db-data:/var/lib/postgresql/data
       - ./main.sql:/docker-entrypoint-initdb.d/main.sql
 
+  kyc-service_postgres:
+    image: postgres:15
+    container_name: kyc-service_postgres
+    restart: always
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: kyc_verifications
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_HOST_AUTH_METHOD: trust
+#    volumes:
+#      - user-db-data:/var/lib/postgresql/data
+#      - ./main.sql:/docker-entrypoint-initdb.d/main.sql
+
   kafka:
     image: bitnami/kafka:3.6
     container_name: kafka
@@ -62,6 +77,20 @@ services:
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
     volumes:
       - kafka_data:/bitnami/kafka
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"  # API порт
+      - "9001:9001"  # Консоль управления
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
 
 
   bankapp:
@@ -225,12 +254,12 @@ services:
     container_name: auth-statistics-service
     depends_on:
       - kafka
-      - postgres
+      - user-service_postgres
     ports:
       - "8086:8080"
     restart: always
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/mainDB
+      SPRING_DATASOURCE_URL: jdbc:postgresql://user-service_postgres:5432/mainDB
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -247,6 +276,26 @@ services:
       retries: 3
       start_period: 20s
 
+  kyc-service:
+    build:
+      context: ./kyc-service
+      dockerfile: Dockerfile
+    container_name: kyc-service
+    depends_on:
+      - kyc-service_postgres
+      - minio
+    ports:
+      - "8088:8080"
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://kyc-service_postgres:5432/kyc_verifications
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      OTEL_SERVICE_NAME: kyc-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+
   api-gateway:
     build:
       context: ./api-gateway
@@ -261,5 +310,6 @@ volumes:
   postgres_data:
   kafka_data:
   user-db-data:
+  minio_data:
 
 

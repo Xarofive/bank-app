@@ -122,8 +122,8 @@ public final class Account {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        final ru.katacademy.bank_app.account.domain.entity.Account account =
-                (ru.katacademy.bank_app.account.domain.entity.Account) o;
+        final Account account =
+                (Account) o;
         return accountNumber.equals(account.accountNumber);
     }
 

@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>
  * Проверяется, что указанный {@code jwt.secret} можно использовать для создания
- * HMAC-ключа с помощью {@link io.jsonwebtoken.security.Keys#hmacShaKeyFor(byte[])}.
+ * HMAC-ключа с помощью {@link Keys#hmacShaKeyFor(byte[])}.
  * Это гарантирует, что секрет соответствует требованиям алгоритма подписи JWT (например, длине).
  * </p>
  *

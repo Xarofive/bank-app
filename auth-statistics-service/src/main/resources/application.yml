@@ -4,10 +4,12 @@ server:
 spring:
   application:
     name: auth-statistics-service
+  liquibase:
+    enabled : false
 
   # Kafka
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: kafka:9092
     consumer:
       group-id: auth-statistics-group
       auto-offset-reset: earliest

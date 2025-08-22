@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Сервис для отправки событий аудита в Kafka.
- * Используется аспектом {@link ru.katacademy.bank_app.audit.aspect.AuditAspect}
+ * Используется аспектом {@link AuditAspect}
  * для публикации сообщений о бизнес-операциях.
  */
 @SuppressFBWarnings(
