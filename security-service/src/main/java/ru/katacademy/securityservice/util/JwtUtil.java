@@ -2,13 +2,14 @@ package ru.katacademy.securityservice.util;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * JwtUtil —  генерация и валидация JWT-токенов.
@@ -35,9 +36,12 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
+    private static final Logger log = LoggerFactory.getLogger(JwtUtil.class);
+
     /**
      * Секретный ключ для HMAC-подписи.
      * Задаётся через application.yml как jwt.secret.
+     * Хранится в docker-compose.yml как JWT_SECRET.
      */
     @Value("${jwt.secret}")
     private String secret;
@@ -55,13 +59,33 @@ public class JwtUtil {
     private Key signingKey;
 
     /**
+     * Проверяет соответствие секрета критериям.
+     */
+    private void validateSecret(String secret) {
+        if (secret == null) {
+            throw new IllegalArgumentException("Секретный ключ не может быть null");
+        }
+
+        // Минимум 32 байта для HMAC-SHA256
+        if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalArgumentException("Длина секретного ключа должна составлять не менее 32 байт");
+        }
+
+        // Проверка формата — только латиница, цифры и спецсимволы
+        if (!secret.matches("^[A-Za-z0-9!@#$%^&*()_+=-]+$")) {
+            throw new IllegalArgumentException("Секретный ключ содержит недопустимые символы");
+        }
+    }
+
+    /**
      * Возвращает объект ключа для подписи на основе секрета.
      * Используется алгоритм HMAC-SHA256.
      */
     private Key getSigningKey() {
         if (signingKey == null) {
+            validateSecret(secret);
             this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-            System.out.println(">>> Signing key initialized with secret: " + secret);
+            log.info("JWT signing key initialized");
         }
         return signingKey;
     }
@@ -72,9 +96,11 @@ public class JwtUtil {
      * @param subject логин или ID пользователя
      * @return строка токена (compact JWT)
      */
-    public String generateToken(String subject) {
+    public String generateToken(String subject, Long userId, Collection<String> roles) {
         return Jwts.builder()
                 .setSubject(subject)
+                .claim("userId", userId)
+                .claim("roles", roles)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(getSigningKey())
@@ -116,5 +142,18 @@ public class JwtUtil {
                 .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token);
+    }
+
+    public Long getUserId(String token) {
+        return parseToken(token).getBody().get("userId", Long.class);
+    }
+
+    public List<String> getRoles(String token) {
+        final Claims claims = parseToken(token).getBody();
+        final Object roles = claims.get("roles");
+        if (roles instanceof Collection<?>) {
+            return ((Collection<?>) roles).stream().map(Object::toString).collect(Collectors.toList());
+        }
+        return List.of();
     }
 }

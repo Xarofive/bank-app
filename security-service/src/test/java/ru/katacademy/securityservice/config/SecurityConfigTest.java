@@ -26,9 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>404 Not Found — публичный POST /api/users/register (разрешён, но контроллера нет).</li>
  * </ul>
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.main.allow-bean-definition-overriding=true")
 @AutoConfigureMockMvc
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, TestCorsConfig.class})
 class SecurityConfigTest {
 
     @Autowired

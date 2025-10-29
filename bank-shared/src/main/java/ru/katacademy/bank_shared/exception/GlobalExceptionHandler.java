@@ -98,8 +98,12 @@ public class GlobalExceptionHandler {
      * @return ResponseEntity с сообщением об ошибке, текущим временем и статусом 404 Not Found
      */
     @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleUserNotFoundException(UserNotFoundException e, HttpServletRequest request) {
-        return buildResponse(e.getMessage(), HttpStatus.NOT_FOUND, request);
+    public ResponseEntity<Map<String, Object>> handleUserNotFoundException(UserNotFoundException e) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("status", HttpStatus.NOT_FOUND.value());
+        body.put("error", HttpStatus.NOT_FOUND.getReasonPhrase());
+        body.put("message", e.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
     /**
@@ -126,5 +130,24 @@ public class GlobalExceptionHandler {
         response.put("message", message);
         response.put("path", request.getRequestURI());
         return new ResponseEntity<>(response, status);
+    }
+
+    /**
+     * Обрабатывает исключение KycException - ошибки валидации KYC
+     * Возвращает HTTP 422 Unprocessable Entity
+     */
+    @ExceptionHandler(KycException.class)
+    public ResponseEntity<Map<String, Object>> handleKycException(KycException e, HttpServletRequest request) {
+        return buildResponse(e.getMessage(), HttpStatus.UNPROCESSABLE_ENTITY, request);
+    }
+
+    /**
+     * Обрабатывает исключение KycServiceUnavailableException - сервис KYC недоступен
+     * Возвращает HTTP 503 Service Unavailable
+     */
+    @ExceptionHandler(KycServiceUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleKycServiceUnavailable(
+            KycServiceUnavailableException e, HttpServletRequest request) {
+        return buildResponse(e.getMessage(), HttpStatus.SERVICE_UNAVAILABLE, request);
     }
 }

@@ -1,19 +1,6 @@
 #version: '3.8'
 
 services:
-  otel-collector:
-    image: otel/opentelemetry-collector:latest
-    container_name: otel-collector
-    ports:
-      - "4318:4318"
-      - "4317:4317"
-    expose:
-      - "4318"
-      - "4317"
-    volumes:
-      - ./otel-config.yaml:/etc/otel-config.yaml
-    command: ["--config=/etc/otel-config.yaml"]
-
   postgres:
     image: postgres:15
     container_name: bankapp-postgres
@@ -27,7 +14,13 @@ services:
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./create_dbs.sh:/docker-entrypoint-initdb.d/create_dbs.sh
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   user-service_postgres:
     image: postgres:15
@@ -55,43 +48,50 @@ services:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: root
       POSTGRES_HOST_AUTH_METHOD: trust
-#    volumes:
-#      - user-db-data:/var/lib/postgresql/data
-#      - ./main.sql:/docker-entrypoint-initdb.d/main.sql
 
   kafka:
-    image: bitnami/kafka:3.6
+    image: confluentinc/cp-kafka:7.7.1
     container_name: kafka
+    restart: unless-stopped
     ports:
-      - "9092:9092" # для контейнеров
-      - "9094:9094" # для доступа с хоста (IDE)
+      - "9092:9092"
+      - "9094:9094"
     environment:
-      - KAFKA_ENABLE_KRAFT=yes
-      - KAFKA_CFG_NODE_ID=1
-      - KAFKA_CFG_PROCESS_ROLES=controller,broker
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
     volumes:
-      - kafka_data:/bitnami/kafka
+      - kafka_data:/var/lib/kafka/data
 
   minio:
     image: minio/minio
     container_name: minio
     ports:
-      - "9000:9000"  # API порт
-      - "9001:9001"  # Консоль управления
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
-
-
 
   bankapp:
     build:
@@ -101,7 +101,6 @@ services:
     depends_on:
       - postgres
       - kafka
-      - otel-collector
     ports:
       - "8080:8080"
     environment:
@@ -109,17 +108,23 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      OTEL_SERVICE_NAME: bankapp
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
+      SPRING_CLOUD_CONFIG_ENABLED: "false"
+      SPRING_CLOUD_CONFIG_IMPORT_CHECK_ENABLED: "false"
+      OTEL_SDK_DISABLED: "true"
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_CLIENTS: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_COMMON_METRICS: ERROR
+      SPRING_MAIN_BANNER_MODE: "off"
     healthcheck:
       test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
-
 
   fraud-detection:
     build:
@@ -136,66 +141,21 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OTEL_SDK_DISABLED: "true"
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_CLIENTS: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_COMMON_METRICS: ERROR
+      SPRING_MAIN_BANNER_MODE: "off"
     healthcheck:
       test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
-
-
-  settings-service:
-    build:
-      context: ./settings-service
-      dockerfile: Dockerfile
-    container_name: settings-service
-    depends_on:
-      - kafka
-      - postgres
-    ports:
-      - "8082:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/userDB
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      SPRING_PROFILES_ACTIVE: docker
-    restart: always
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-
-  account-service:
-    build:
-      context: ./account-service
-      dockerfile: Dockerfile
-    container_name: account-service
-    depends_on:
-      - kafka
-      - postgres
-    ports:
-      - "8084:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://user-service_postgres:5432/mainDB
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: root
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      OTEL_SERVICE_NAME: user-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
 
   notification-service:
     build:
@@ -213,10 +173,16 @@ services:
       SPRING_DATASOURCE_PASSWORD: root
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_PROFILES_ACTIVE: docker
-      OTEL_SERVICE_NAME: notification-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
+      SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
+      OTEL_SDK_DISABLED: "true"
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_CLIENTS: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_COMMON_METRICS: ERROR
+      SPRING_MAIN_BANNER_MODE: "off"
     healthcheck:
       test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
       interval: 10s
@@ -230,16 +196,27 @@ services:
       dockerfile: Dockerfile
     container_name: security-service
     depends_on:
-        - otel-collector
+      - kafka
+      - postgres
     ports:
-        - "8085:8080"
-    restart: always
+      - "8085:8080"
     environment:
-        OTEL_SERVICE_NAME: security-service
-        OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-        OTEL_TRACES_EXPORTER: otlp
-        OTEL_METRICS_EXPORTER: otlp
-        OTEL_LOGS_EXPORTER: otlp
+      JWT_SECRET: "testsecretkeyfortestpurposesonly1234567890"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/security_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      OTEL_SDK_DISABLED: "true"
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: WARN
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_CLIENTS: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA_COMMON_METRICS: ERROR
+      SPRING_MAIN_BANNER_MODE: "off"
     healthcheck:
       test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
       interval: 10s
@@ -247,28 +224,95 @@ services:
       retries: 3
       start_period: 20s
 
-  auth-statistics-service:
+  api-gateway:
     build:
-      context: ./auth-statistics-service
+      context: ./api-gateway
       dockerfile: Dockerfile
-    container_name: auth-statistics-service
+    container_name: api-gateway
+    ports:
+      - "8765:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+      MANAGEMENT_HEALTH_PROBES_ENABLED: "true"
+      SPRING_MAIN_BANNER_MODE: "off"
+      LOGGING_LEVEL_ROOT: "INFO"
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: "WARN"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  audit-service:
+    build:
+      context: ./audit
+      dockerfile: Dockerfile
+    container_name: audit-service
     depends_on:
+      - postgres
       - kafka
-      - user-service_postgres
     ports:
       - "8086:8080"
-    restart: always
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://user-service_postgres:5432/mainDB
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/audit_db
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
+
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      SPRING_KAFKA_CONSUMER_GROUP_ID: auth-statistics-group
-      SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET: earliest
-      OTEL_SERVICE_NAME: auth-statistics-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
+
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+      MANAGEMENT_HEALTH_PROBES_ENABLED: "true"
+
+      OTEL_SDK_DISABLED: "true"
+
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  account-service:
+    build:
+      context: ./account-service
+      dockerfile: Dockerfile
+    container_name: account-service
+    depends_on:
+      - postgres
+      - kafka
+    ports:
+      - "8088:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/account_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_CLOUD_CONFIG_ENABLED: "false"
+      SPRING_CLOUD_CONFIG_IMPORT_CHECK_ENABLED: "false"
+      OTEL_SDK_DISABLED: "true"
+      KYC_TOPICS_EVENTS: kyc-events
+
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_HIBERNATE: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+      LOGGING_LEVEL_FEIGN: WARN
+
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+
+      SECURITY_JWT_SECRET: "supersecretkeyforlocaldev"
+
     healthcheck:
       test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
       interval: 10s
@@ -284,32 +328,89 @@ services:
     depends_on:
       - kyc-service_postgres
       - minio
+      - kafka
     ports:
-      - "8088:8080"
-    restart: always
+      - "8084:8080"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://kyc-service_postgres:5432/kyc_verifications
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: root
-      OTEL_SERVICE_NAME: kyc-service
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
 
-  api-gateway:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: kyc-files
+
+      SPRING_PROFILES_ACTIVE: docker
+      OTEL_SDK_DISABLED: "true"
+      LOGGING_LEVEL_ROOT: INFO
+
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+      MANAGEMENT_HEALTH_PROBES_ENABLED: "true"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  settings-service:
     build:
-      context: ./api-gateway
-    ports:
-      - "8765:8765"
+      context: ./settings-service
+      dockerfile: Dockerfile
+    container_name: settings-service
     depends_on:
-      - account-service
-      - security-service
-      - settings-service
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    ports:
+      - "8082:8080"   # наружу 8082, внутри 8080
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/settings_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
+      MANAGEMENT_HEALTH_PROBES_ENABLED: "true"
+
+      OTEL_SDK_DISABLED: "true"
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: WARN
+      LOGGING_LEVEL_ORG_HIBERNATE: WARN
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: WARN
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/actuator/health/liveness && wget --spider -q http://localhost:8080/actuator/health/readiness" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  minio-bootstrap:
+    image: minio/mc
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    entrypoint: [ "/bin/sh","-c" ]
+    command: >
+      mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD &&
+      mc mb -p local/kyc-files || true
+    restart: "no"
+
+
 
 volumes:
   postgres_data:
   kafka_data:
   user-db-data:
   minio_data:
-
-

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -29,6 +30,44 @@ class JwtUtilTest {
         ReflectionTestUtils.setField(jwtUtil, "expirationMs", 3600000L);
     }
 
+    @Test
+    void generateToken_ShouldThrowException_WhenSecretIsTooShort() {
+
+        ReflectionTestUtils.setField(jwtUtil, "secret", "short");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> jwtUtil.generateToken("testUser", 123L, List.of("ROLE_USER")));
+    }
+
+    @Test
+    void generateToken_ShouldThrowException_WhenSecretHasInvalidCharacters() {
+
+        ReflectionTestUtils.setField(jwtUtil, "secret", "секретскириллицей123456789012345");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> jwtUtil.generateToken("testUser", 123L, List.of("ROLE_USER")));
+    }
+
+    @Test
+    void generateToken_ShouldThrowException_WhenSecretIsNull() {
+
+        ReflectionTestUtils.setField(jwtUtil, "secret", null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> jwtUtil.generateToken("testUser", 123L, List.of("ROLE_USER")));
+    }
+
+    @Test
+    void generateToken_ShouldWork_WhenSecretIsValid() {
+        // Устанавливаем валидный секрет
+        final String validSecret = "valid_secret_12345678901234567890!@#";
+        ReflectionTestUtils.setField(jwtUtil, "secret", validSecret);
+
+        // Не должно быть исключения
+        assertDoesNotThrow(() ->
+                jwtUtil.generateToken("testUser", 123L, List.of("ROLE_USER")));
+    }
+
     /**
      * Тест генерации токена.
      * Проверяет что:
@@ -37,7 +76,11 @@ class JwtUtilTest {
      */
     @Test
     void generateToken_ShouldReturnValidToken() {
-        final String token = jwtUtil.generateToken(testUser);
+        final String token = jwtUtil.generateToken(
+                "testUser",
+                123L,
+                List.of("ROLE_USER")
+        );
 
         assertNotNull(token);
         assertEquals(3, token.split("\\.").length);
@@ -49,7 +92,10 @@ class JwtUtilTest {
      */
     @Test
     void getSubject_ShouldReturnCorrectUsername() {
-        final String token = jwtUtil.generateToken(testUser);
+        final String token = jwtUtil.generateToken(
+                "testUser",
+                123L,
+                List.of("ROLE_USER"));
         final String subject = jwtUtil.getSubject(token);
 
         assertEquals(testUser, subject);
@@ -65,7 +111,10 @@ class JwtUtilTest {
      */
     @Test
     void getClaimsCopy_ShouldContainRequiredFields() {
-        final String token = jwtUtil.generateToken(testUser);
+        final String token = jwtUtil.generateToken(
+                "testUser",
+                123L,
+                List.of("ROLE_USER"));
         final Map<String, Object> claims = jwtUtil.getClaimsCopy(token);
 
         assertNotNull(claims);
